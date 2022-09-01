@@ -3,6 +3,8 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"os"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	backupdriverv1 "github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/apis/backupdriver/v1alpha1"
@@ -20,7 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
-	"os"
 )
 
 // PVCBackupItemAction is a backup item action plugin for Velero.
@@ -98,15 +99,6 @@ func (p *NewPVCBackupItemAction) Execute(item runtime.Unstructured, backup *vele
 	if err != nil {
 		return nil, nil, errors.WithStack(err)
 	}
-	if pv.Spec.PersistentVolumeSource.CSI == nil {
-		p.Log.Infof("Skipping PVC %s/%s, associated PV %s is not a CSI volume", pvc.Namespace, pvc.Name, pv.Name)
-		return item, nil, nil
-	}
-
-	if pv.Spec.PersistentVolumeSource.CSI.Driver != constants.VSphereCSIDriverName {
-		p.Log.Infof("Skipping PVC %s/%s, associated PV %s is not a vSphere CSI volume", pvc.Namespace, pvc.Name, pv.Name)
-		return item, nil, nil
-	}
 
 	// Do nothing if restic is used to backup this PV
 	isResticUsed, err := pluginUtil.IsPVCBackedUpByRestic(pvc.Namespace, pvc.Name, kubeClient.CoreV1(), boolptr.IsSetToTrue(backup.Spec.DefaultVolumesToRestic))
@@ -116,6 +108,30 @@ func (p *NewPVCBackupItemAction) Execute(item runtime.Unstructured, backup *vele
 	if isResticUsed {
 		p.Log.Infof("Skipping PVC %s/%s, PV %s will be backed up using restic", pvc.Namespace, pvc.Name, pv.Name)
 		return item, nil, nil
+	}
+
+	if utils.IsFeatureEnabled(kubeClient, constants.CSIMigratedVolumeSupportFlag, false, p.Log) {
+		if pv.Spec.PersistentVolumeSource.CSI == nil && !pluginUtil.IsMigratedCSIVolume(pv) {
+			msg := fmt.Sprintf("skipping %s/%s, associated PV %s is not a CSI volume, nor a migrated volume", pvc.Namespace, pvc.Name, pv.Name)
+			p.Log.Infof(msg)
+			return nil, nil, errors.New(msg)
+		}
+
+		if pv.Spec.PersistentVolumeSource.CSI != nil && pv.Spec.PersistentVolumeSource.CSI.Driver != constants.VSphereCSIDriverName {
+			msg := fmt.Sprintf("skipping %s/%s, associated PV %s is not a vSphere CSI volume", pvc.Namespace, pvc.Name, pv.Name)
+			p.Log.Infof(msg)
+			return nil, nil, errors.New(msg)
+		}
+	} else {
+		if pv.Spec.PersistentVolumeSource.CSI == nil {
+			p.Log.Infof("Skipping PVC %s/%s, associated PV %s is not a CSI volume", pvc.Namespace, pvc.Name, pv.Name)
+			return item, nil, nil
+		}
+
+		if pv.Spec.PersistentVolumeSource.CSI.Driver != constants.VSphereCSIDriverName {
+			p.Log.Infof("Skipping PVC %s/%s, associated PV %s is not a vSphere CSI volume", pvc.Namespace, pvc.Name, pv.Name)
+			return item, nil, nil
+		}
 	}
 
 	backupdriverClient, err := backupdriverTypedV1.NewForConfig(restConfig)
