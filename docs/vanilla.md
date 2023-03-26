@@ -12,14 +12,18 @@
 
 ## Compatibility
 
-| Velero Plugin for vSphere Version | vSphere Version        | Kubernetes Version | vSphere CSI Driver Version | Velero Version | Deprecated | EOL Date      |
-|-----------------------------------|------------------------|--------------------|----------------------------|----------------|------------|---------------|
-| 1.3.1                             | 6.7U3 P06 - 7.0U3      | 1.19-1.22          | 2.2.2, 2.3.1, 2.4.1        | 1.7.0          | No         | N/A           |
-| 1.3.0                             | 6.7U3 P06 - 7.0U3      | 1.19-1.22          | 2.2.2, 2.3.1, 2.4.1        | 1.7.0          | Yes        | December 2022 |
-| 1.2.1                             | 6.7U3 P06 - 7.0U2      | 1.19-1.21          | 2.1.2, 2.2.2, 2.3.1        | 1.5.1          | Yes        | June 2023     |
-| 1.2.0                             | 6.7U3 P06 - 7.0U2      | 1.19-1.21          | 2.1.2, 2.2.2, 2.3.1        | 1.5.1          | Yes        | December 2022 |
-| 1.1.1                             | 6.7U3 P06 - 7.0U1c/P02 | 1.17-1.19          | 2.0.1, 2.1.0               | 1.5.1          | No         | N/A           |
-| 1.1.0                             | 6.7U3 P06 - 7.0U1c/P02 | 1.17-1.21          | 2.0.1, 2.1.0               | 1.5.1          | Yes        | December 2022 |
+| Velero Plugin for vSphere Version | vSphere Version        | Kubernetes Version | vSphere CSI Driver Version        | Velero Version | vSphere Plugin Deprecated | vSphere Plugin EOL Date      |
+|-----------------------------------|------------------------|--------------------|-----------------------------------|----------------|------------|---------------|
+| 1.4.2                             | 8.0                    | 1.24-1.25          | 2.7.0                             | 1.9.2          | No         | N/A           |
+| 1.4.2                             | 7.0U3h                 | 1.24-1.25          | 2.7.0                             | 1.9.2          | No         | N/A           |
+| 1.4.1                             | 8.0                    | 1.24-1.25          | 2.7.0                             | 1.9.2          | No         | N/A           |
+| 1.4.0                             | 6.7U3 P06 - 7.0U3      | 1.20-1.23          | 2.2.2, 2.3.1, 2.4.1, 2.5.1, 2.6.1 | 1.8.1          | No         | N/A           |
+| 1.3.1                             | 6.7U3 P06 - 7.0U3      | 1.19-1.22          | 2.2.2, 2.3.1, 2.4.1               | 1.7.0          | No         | N/A           |
+| 1.3.0                             | 6.7U3 P06 - 7.0U3      | 1.19-1.22          | 2.2.2, 2.3.1, 2.4.1               | 1.7.0          | Yes        | December 2022 |
+| 1.2.1                             | 6.7U3 P06 - 7.0U2      | 1.19-1.21          | 2.1.2, 2.2.2, 2.3.1               | 1.5.1          | Yes        | June 2023     |
+| 1.2.0                             | 6.7U3 P06 - 7.0U2      | 1.19-1.21          | 2.1.2, 2.2.2, 2.3.1               | 1.5.1          | Yes        | December 2022 |
+| 1.1.1                             | 6.7U3 P06 - 7.0U1c/P02 | 1.17-1.19          | 2.0.1, 2.1.0                      | 1.5.1          | No         | N/A           |
+| 1.1.0                             | 6.7U3 P06 - 7.0U1c/P02 | 1.17-1.21          | 2.0.1, 2.1.0                      | 1.5.1          | Yes        | December 2022 |
 
 **Note**: Velero Plugin for vSphere 1.0.2 and earlier: EOL.
 **Note**: Velero Plugin for vSphere 1.2.x does not work for TKGm which is fixed in 1.3.0+.
@@ -214,7 +218,7 @@ Below is an example command of Velero backup.
 velero backup create <backup name> --include-namespaces=my-namespace
 ```
 
-For more backup options, please refer to [Velero Document](https://velero.io/docs/v1.5/).
+For more backup options, please refer to [Velero Document](https://velero.io/docs/v1.10/).
 
 Velero backup will be marked as `Completed` after all local snapshots have been taken and Kubernetes metadata,
 **except** volume snapshots, has been uploaded to the object store. At this point, async data movement tasks, i.e., the upload
@@ -329,13 +333,16 @@ Upload CRD has a number of phases for the `.status.phase` field:
 
 UploadError uploads will be periodically retried.  At that point their phase will return to InProgress.  After an upload has been
 successfully completed, its record will remain for a period of time and eventually be removed.
+#### Migrated CNS block volume
+
+If the CNS block volume is migrated, refer to [CSI migrated volume support](csi-migrated-volume-support.md).
 
 ### Backup vSphere CNS File Volumes
 
 The Velero Plugin for vSphere is designed to backup vSphere CNS block volumes. vSphere CNS
-file volumes should be backed up with the [Velero Restic Integration](https://velero.io/docs/v1.5/restic/).  File volumes must be annotated for Restic backup.  Block and file volumes may be backed up together.
+file volumes should be backed up with the [File System Backup](https://velero.io/docs/v1.10/file-system-backup/).  File volumes must be annotated for File System backup.  Block and file volumes may be backed up together.
 
-To use Restic backup for file volumes, please use the `--use-restic` flag to `velero install` command when
+To use File System Backup for file volumes, please use the `--use-node-agent` flag to `velero install` command when
 installing Velero.  Annotate all PVs backed by vSphere CNS file volumes before running any `velero backup`
 commands by using the following command for each pod that contains one or more file volumes to
 back up:

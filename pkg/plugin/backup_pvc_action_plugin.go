@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/cmd"
 	"os"
 
 	"github.com/pkg/errors"
@@ -12,6 +13,7 @@ import (
 	"github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/buildinfo"
 	"github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/constants"
 	backupdriverTypedV1 "github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/generated/clientset/versioned/typed/backupdriver/v1alpha1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	pluginUtil "github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/plugin/util"
 	"github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/snapshotUtils"
 	"github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/utils"
@@ -33,8 +35,18 @@ type NewPVCBackupItemAction struct {
 func (p *NewPVCBackupItemAction) AppliesTo() (velero.ResourceSelector, error) {
 	p.Log.Info("VSphere PVCBackupItemAction AppliesTo")
 
+	blockListConfigMap, err := cmd.RetrieveBlockListConfigMap()
+	if err != nil {
+		if !k8serrors.IsNotFound(err) {
+			p.Log.Info("Failed to retrieve resources to block list.")
+			return velero.ResourceSelector{}, errors.WithStack(err)
+		}
+		p.Log.Info("There is no blocklist configmap found. Assuming no resources to block.")
+		blockListConfigMap = make(map[string]string)
+	}
+
 	return velero.ResourceSelector{
-		IncludedResources: pluginUtil.GetResources(),
+		IncludedResources: pluginUtil.GetResources(blockListConfigMap),
 	}, nil
 }
 
@@ -100,13 +112,13 @@ func (p *NewPVCBackupItemAction) Execute(item runtime.Unstructured, backup *vele
 		return nil, nil, errors.WithStack(err)
 	}
 
-	// Do nothing if restic is used to backup this PV
-	isResticUsed, err := pluginUtil.IsPVCBackedUpByRestic(pvc.Namespace, pvc.Name, kubeClient.CoreV1(), boolptr.IsSetToTrue(backup.Spec.DefaultVolumesToRestic))
+	// Do nothing if fs backup is used to backup this PV
+	isFsBackupUsed, err := pluginUtil.IsPVCBackedUpByFsBackup(pvc.Namespace, pvc.Name, kubeClient.CoreV1(), boolptr.IsSetToTrue(backup.Spec.DefaultVolumesToFsBackup))
 	if err != nil {
 		return nil, nil, errors.WithStack(err)
 	}
-	if isResticUsed {
-		p.Log.Infof("Skipping PVC %s/%s, PV %s will be backed up using restic", pvc.Namespace, pvc.Name, pv.Name)
+	if isFsBackupUsed {
+		p.Log.Infof("Skipping PVC %s/%s, PV %s will be backed up using fs backup", pvc.Namespace, pvc.Name, pv.Name)
 		return item, nil, nil
 	}
 
@@ -191,6 +203,13 @@ func (p *NewPVCBackupItemAction) Execute(item runtime.Unstructured, backup *vele
 	}
 
 	p.Log.Infof("Persisting snapshot with snapshotID :%s under label: %s Snapshot: %v", updatedSnapshot.Status.SnapshotID, constants.ItemSnapshotLabel, updatedSnapshot)
+
+	// Remove the volume health annotations before the backup
+	// because vSphere CSI driver has a webhook that prevents this annotation
+	// from being created/updated by a non-CSI driver system service account
+	healthAnnotations := []string{constants.AnnVolumeHealth, constants.AnnVolumeHealthTS}
+	pluginUtil.RemoveAnnotations(&pvc.ObjectMeta, healthAnnotations)
+
 	// Persist the snapshot blob as an annotation of PVC
 	snapshotAnnotation, err := pluginUtil.GetAnnotationFromSnapshot(updatedSnapshot)
 	if err != nil {

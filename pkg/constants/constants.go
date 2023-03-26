@@ -187,6 +187,11 @@ const (
 	SupervisorResourcePoolKey = "SupervisorResourcePool"
 )
 
+// Name for skip resources list configmap
+const (
+	ResourcesToBlockListName = "velero-vsphere-plugin-blocked-resources-list"
+)
+
 // We are currently translating Group + Kind -> the names below.  This involves
 // a singular to plural conversion.  When adding new resources, ensure that they
 // work with the singular to plural rule of words ending in "y" the "y" becomes "ies" and other
@@ -413,4 +418,12 @@ const (
 	VSphereSecretNameKey      = "vsphere_secret_name"
 	DefaultSecretName         = "velero-vsphere-config-secret"
 	DefaultSecretNamespace    = "velero"
+)
+
+const (
+	// AnnVolumeHealth is the key for HealthStatus annotation on volume claim
+	// for vSphere CSI Driver.
+	AnnVolumeHealth = "volumehealth.storage.kubernetes.io/health"
+        // key for expressing timestamp for volume health annotation
+        AnnVolumeHealthTS = "volumehealth.storage.kubernetes.io/health-timestamp"
 )

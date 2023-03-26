@@ -627,7 +627,7 @@ func TestIsPVCBackedUpByRestic(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			actualIsResticUsed, _ := IsPVCBackedUpByRestic(tc.inPVCNamespace, tc.inPVCName, fakeClient.CoreV1(), tc.defaultVolumeBackupToRestic)
+			actualIsResticUsed, _ := IsPVCBackedUpByFsBackup(tc.inPVCNamespace, tc.inPVCName, fakeClient.CoreV1(), tc.defaultVolumeBackupToRestic)
 			assert.Equal(t, tc.expectedIsResticUsed, actualIsResticUsed)
 		})
 	}
@@ -699,6 +699,58 @@ func TestIsMigratedCSIVolume(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			actualIsMigratedCSIVolume := IsMigratedCSIVolume(tc.pv)
 			assert.Equal(t, tc.expectedValidMigratedVolume, actualIsMigratedCSIVolume)
+		})
+	}
+}
+
+func TestIsResourceBlocked(t *testing.T) {
+	var resourcesToBlockForTest = map[string]string{
+		"agentinstalls.installers.tmc.cloud.vmware.com": "true",
+		"availabilityzones.topology.tanzu.vmware.com":   "false",
+	}
+
+	testCases := []struct {
+		name               string
+		crdName            string
+		resourceToBlock    map[string]string
+		expectedResult     bool
+	}{
+		{
+			name:            "crd is blocked",
+			crdName:         "agentinstalls.installers.tmc.cloud.vmware.com",
+			resourceToBlock: resourcesToBlockForTest,
+			expectedResult:  true,
+		},
+		{
+			name:            "crd is not blocked",
+			crdName:         "availabilityzones.topology.tanzu.vmware.com",
+			resourceToBlock: resourcesToBlockForTest,
+			expectedResult:  false,
+		},
+		{
+			name:            "crd is not included in skip list",
+			crdName:         "donotexist",
+			resourceToBlock: resourcesToBlockForTest,
+			expectedResult:  false,
+		},
+		{
+			name:            "block list is nil",
+			crdName:         "agentinstalls.installers.tmc.cloud.vmware.com",
+			resourceToBlock: nil,
+			expectedResult:  false,
+		},
+		{
+			name:            "block list is empty",
+			crdName:         "availabilityzones.topology.tanzu.vmware.com",
+			resourceToBlock: make(map[string]string),
+			expectedResult:  false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			isBlocked := IsResourceBlocked(tc.crdName, tc.resourceToBlock)
+			assert.Equal(t, tc.expectedResult, isBlocked)
 		})
 	}
 }

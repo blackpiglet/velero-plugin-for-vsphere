@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/cmd"
 	"k8s.io/client-go/kubernetes"
 	"os"
 
@@ -11,6 +12,7 @@ import (
 	backupdriverv1 "github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/apis/backupdriver/v1alpha1"
 	"github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/backuprepository"
 	"github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/constants"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	backupdriverTypedV1 "github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/generated/clientset/versioned/typed/backupdriver/v1alpha1"
 	pluginItem "github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/plugin/util"
 	"github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/snapshotUtils"
@@ -31,8 +33,18 @@ type NewPVCRestoreItemAction struct {
 func (p *NewPVCRestoreItemAction) AppliesTo() (velero.ResourceSelector, error) {
 	p.Log.Info("VSphere PVCRestoreItemAction AppliesTo")
 
+	blockListConfigMap, err := cmd.RetrieveBlockListConfigMap()
+	if err != nil {
+		if !k8serrors.IsNotFound(err) {
+			p.Log.Info("Failed to retrieve resources to block list.")
+			return velero.ResourceSelector{}, errors.WithStack(err)
+		}
+		p.Log.Info("There is no blocklist configmap found. Assuming no resources to block.")
+		blockListConfigMap = make(map[string]string)
+	}
+
 	resources := []string{"persistentvolumeclaims"}
-	for resourceToBlock, _ := range constants.ResourcesToBlock {
+	for resourceToBlock, _ := range blockListConfigMap {
 		resources = append(resources, resourceToBlock)
 	}
 	for resourceToBlockOnRestore, _ := range constants.ResourcesToBlockOnRestore {
@@ -77,12 +89,28 @@ func (p *NewPVCRestoreItemAction) Execute(input *velero.RestoreItemActionExecute
 		return nil, errors.WithStack(err)
 	}
 
+	// Remove the volume health annotations before the restore
+	// because vSphere CSI driver has a webhook that prevents this annotation
+	// from being created/updated by a non-CSI driver system service account
+	healthAnnotations := []string{constants.AnnVolumeHealth, constants.AnnVolumeHealthTS}
+	pluginItem.RemoveAnnotations(&pvc.ObjectMeta, healthAnnotations)
+
+	// Update item with the PVC without the volume health annotations
+	// so that Velero can create a PVC without being rejected by the
+	// vSphere CSI driver webhook in the case of Skipping PVCRestoreItemAction
+	pvcMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&pvc)
+	if err != nil {
+		p.Log.Errorf("Error converting the pvc %s/%s to unstructured. Error: %v", pvc.Namespace, pvc.Name, err)
+		return nil, errors.WithStack(err)
+	}
+	item = &unstructured.Unstructured{Object: pvcMap}
+
 	// exit early if the RestorePVs option is disabled
 	p.Log.Info("Checking if the RestorePVs option is disabled in the Restore Spec")
 	if input.Restore.Spec.RestorePVs != nil && *input.Restore.Spec.RestorePVs == false {
 		p.Log.Infof("Skipping PVCRestoreItemAction for PVC %s/%s since the RestorePVs option is disabled in the Restore Spec.", pvc.Namespace, pvc.Name)
 		return &velero.RestoreItemActionExecuteOutput{
-			UpdatedItem: input.Item,
+			UpdatedItem: item,
 		}, nil
 	}
 
@@ -152,7 +180,7 @@ func (p *NewPVCRestoreItemAction) Execute(input *velero.RestoreItemActionExecute
 		// Skip PVCRestoreItemAction for PVC creation
 		// as it already exists
 		return &velero.RestoreItemActionExecuteOutput{
-			UpdatedItem: input.Item,
+			UpdatedItem: item,
 		}, nil
 	} // else, go ahead to create a new PVC
 
