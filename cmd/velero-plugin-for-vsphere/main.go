@@ -17,53 +17,34 @@
 package main
 
 import (
-	"os"
-	"strings"
-
-	"github.com/sirupsen/logrus"
-	"github.com/spf13/pflag"
-	plugins_pkg "github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/plugin"
-	"github.com/vmware-tanzu/velero/pkg/features"
-	veleroplugin "github.com/vmware-tanzu/velero/pkg/plugin/framework"
-
 	// enable fips only mode
 	_ "crypto/tls/fipsonly"
+
+	"github.com/sirupsen/logrus"
+	velero_plugin "github.com/vmware-tanzu/velero/pkg/plugin/framework"
+
+	plugins_pkg "github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/plugin"
+	plugins_util "github.com/vmware-tanzu/velero-plugin-for-vsphere/pkg/plugin/util"
 )
 
 func main() {
-	enableFeatureFlagForVSpherePlugins()
-	veleroPluginServer := veleroplugin.NewServer()
+	logger := logrus.StandardLogger()
+
+	if err := plugins_util.CreateBlockListConfigMap(logger); err != nil {
+		logrus.Fatalf("Failed to create block list config map: %v", err)
+	}
+
+	veleroPluginServer := velero_plugin.NewServer()
 	veleroPluginServer = veleroPluginServer.
-		RegisterBackupItemAction("velero.io/vsphere-pvc-backupper", newPVCBackupItemAction).
-		RegisterRestoreItemAction("velero.io/vsphere-pvc-restorer", newPVCRestoreItemAction).
-		RegisterDeleteItemAction("velero.io/vsphere-pvc-deleter", newPVCDeleteItemAction).
-		RegisterVolumeSnapshotter("velero.io/vsphere", newVolumeSnapshotterPlugin)
+		RegisterBackupItemAction("velero.io/vsphere-backupper", newBackupItemAction).
+		RegisterRestoreItemAction("velero.io/vsphere-restorer", newRestoreItemAction)
 	veleroPluginServer.Serve()
 }
 
-func newVolumeSnapshotterPlugin(logger logrus.FieldLogger) (interface{}, error) {
-	return &plugins_pkg.NewVolumeSnapshotter{FieldLogger: logger}, nil
+func newBackupItemAction(logger logrus.FieldLogger) (interface{}, error) {
+	return &plugins_pkg.NewBackupItemAction{Log: logger}, nil
 }
 
-func newPVCBackupItemAction(logger logrus.FieldLogger) (interface{}, error) {
-	return &plugins_pkg.NewPVCBackupItemAction{Log: logger}, nil
-}
-
-func newPVCRestoreItemAction(logger logrus.FieldLogger) (interface{}, error) {
-	return &plugins_pkg.NewPVCRestoreItemAction{Log: logger}, nil
-}
-
-func newPVCDeleteItemAction(logger logrus.FieldLogger) (interface{}, error) {
-	return &plugins_pkg.NewPVCDeleteItemAction{Log: logger}, nil
-}
-
-func enableFeatureFlagForVSpherePlugins() {
-	var featureString string
-	flags := pflag.CommandLine
-	flags.StringVar(&featureString, "features", featureString, "list of feature flags for this plugin")
-	flags.ParseErrorsWhitelist.UnknownFlags = true
-	flags.Parse(os.Args[1:])
-
-	featureFlags := strings.Split(featureString, ",")
-	features.Enable(featureFlags...)
+func newRestoreItemAction(logger logrus.FieldLogger) (interface{}, error) {
+	return &plugins_pkg.NewRestoreItemAction{Log: logger}, nil
 }
